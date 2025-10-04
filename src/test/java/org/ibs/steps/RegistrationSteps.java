@@ -6,9 +6,7 @@ import io.cucumber.java.en.Then;
 import io.qameta.allure.Step;
 import org.openqa.selenium.*;
 import org.openqa.selenium.chrome.ChromeDriver;
-import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.edge.EdgeDriver;
-import org.openqa.selenium.edge.EdgeOptions;
 import org.openqa.selenium.interactions.Actions;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
@@ -27,7 +25,7 @@ public class RegistrationSteps {
     private static final String BASE_URL = "http://217.74.37.176";
     private static final String REGISTER_URL = BASE_URL + "/?route=account/register&language=ru-ru";
     private static final Duration IMPLICIT_WAIT = Duration.ofSeconds(10);
-    private static final Duration EXPLICIT_WAIT = Duration.ofSeconds(20);
+    private static final Duration EXPLICIT_WAIT = Duration.ofSeconds(10);
 
     private static final By FIRST_NAME_INPUT = By.id("input-firstname");
     private static final By LAST_NAME_INPUT = By.id("input-lastname");
@@ -42,64 +40,15 @@ public class RegistrationSteps {
     @Given("Я открываю страницу регистрации")
     @Step("Открытие страницы регистрации")
     public void openRegistrationPage() {
-        // Определяем, запущены ли тесты в CI/CD окружении
-        boolean isCI = System.getenv("JENKINS_HOME") != null ||
-                System.getenv("CI") != null ||
-                System.getProperty("os.name").toLowerCase().contains("linux");
-
-        if (isCI) {
-            // Настройки для CI/CD окружения (Chrome в headless режиме)
-            setupChromeHeadless();
-        } else {
-            // Настройки для локального запуска (Edge)
-            setupEdgeBrowser();
-        }
+        driver = new ChromeDriver();
+        wait = new WebDriverWait(driver, EXPLICIT_WAIT);
+        actions = new Actions(driver);
 
         driver.manage().window().maximize();
         driver.manage().timeouts().implicitlyWait(IMPLICIT_WAIT);
 
         driver.get(REGISTER_URL);
         scrollDown(200);
-    }
-
-    @Step("Настройка Chrome в headless режиме для CI/CD")
-    private void setupChromeHeadless() {
-        ChromeOptions options = new ChromeOptions();
-
-        // Основные опции для headless режима
-        options.addArguments("--headless=new");
-        options.addArguments("--no-sandbox");
-        options.addArguments("--disable-dev-shm-usage");
-        options.addArguments("--disable-gpu");
-        options.addArguments("--window-size=1920,1080");
-        options.addArguments("--remote-allow-origins=*");
-        options.addArguments("--disable-extensions");
-        options.addArguments("--disable-web-security");
-        options.addArguments("--allow-running-insecure-content");
-        options.addArguments("--ignore-certificate-errors");
-
-        // Дополнительные опции для стабильности
-        options.addArguments("--disable-blink-features=AutomationControlled");
-        options.addArguments("--disable-features=VizDisplayCompositor");
-        options.addArguments("--disable-software-rasterizer");
-
-        driver = new ChromeDriver(options);
-        wait = new WebDriverWait(driver, EXPLICIT_WAIT);
-        actions = new Actions(driver);
-
-        System.out.println("Chrome запущен в headless режиме для CI/CD");
-    }
-
-    @Step("Настройка Edge браузера для локального запуска")
-    private void setupEdgeBrowser() {
-        EdgeOptions options = new EdgeOptions();
-        options.addArguments("--remote-allow-origins=*");
-
-        driver = new EdgeDriver(options);
-        wait = new WebDriverWait(driver, EXPLICIT_WAIT);
-        actions = new Actions(driver);
-
-        System.out.println("Edge запущен для локального тестирования");
     }
 
     @When("Я заполняю форму регистрации с невалидным email")
@@ -150,35 +99,24 @@ public class RegistrationSteps {
     @Step("Проверка неуспешной регистрации из-за email")
     public void assertRegistrationFailedDueToEmail() {
         assertRegistrationFailed("Регистрация должна быть провальной из-за отсутствия @ в email");
-        closeDriver();
+        driver.quit();
     }
 
     @Then("Регистрация должна быть провальной из-за наличия цифр в поле 'Имя'")
     @Step("Проверка неуспешной регистрации из-за цифр в имени")
     public void assertRegistrationFailedDueToDigits() {
         assertRegistrationFailed("Регистрация должна быть провальной из-за наличия цифр в поле 'Имя'");
-        closeDriver();
+        driver.quit();
     }
 
     @Then("Регистрация должна быть успешной")
     @Step("Проверка успешной регистрации")
     public void assertRegistrationSuccessful() {
         assertRegistrationSuccessful("Регистрация должна быть успешной с валидными данными");
-        closeDriver();
+        driver.quit();
     }
 
-    @Step("Безопасное закрытие драйвера")
-    private void closeDriver() {
-        if (driver != null) {
-            try {
-                driver.quit();
-            } catch (Exception e) {
-                System.err.println("Ошибка при закрытии драйвера: " + e.getMessage());
-            }
-        }
-    }
-
-    // Остальные вспомогательные методы остаются без изменений
+    // Вспомогательные методы
     @Step("Заполнение формы регистрации")
     private void fillRegistrationForm(String firstName, String lastName, String email,
                                       String password, boolean subscribe, boolean agree) {
