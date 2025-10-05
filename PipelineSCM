@@ -1,0 +1,14 @@
+node('unix') {
+    stage('Git checkout') {
+        checkout scm
+    }
+    stage('Maven operations') {
+        withMaven(globalMavenSettingsConfig: '', jdk: '', maven: 'Default', mavenSettingsConfig: '', traceability: true) {
+        sh 'mvn clean test -Dtype.browser=${browser}'
+        sh 'mvn allure:report'
+        }
+    }
+    stage('Allure report') {
+        allure includeProperties: false, jdk: '', results: [[path: 'target/allure-results']]
+    }
+}
