@@ -5,9 +5,10 @@ import io.cucumber.java.en.When;
 import io.cucumber.java.en.Then;
 import io.qameta.allure.Step;
 import org.openqa.selenium.*;
+import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
+import org.openqa.selenium.firefox.FirefoxDriver;
 import org.openqa.selenium.interactions.Actions;
-import org.openqa.selenium.remote.DesiredCapabilities;
 import org.openqa.selenium.remote.RemoteWebDriver;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
@@ -18,6 +19,8 @@ import java.net.URL;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import java.io.InputStream;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -26,16 +29,14 @@ public class RegistrationSteps {
     private WebDriver driver;
     private WebDriverWait wait;
     private Actions actions;
+    private Properties properties;
 
     private static final String BASE_URL = "http://217.74.37.176";
     private static final String REGISTER_URL = BASE_URL + "/?route=account/register&language=ru-ru";
     private static final Duration IMPLICIT_WAIT = Duration.ofSeconds(10);
     private static final Duration EXPLICIT_WAIT = Duration.ofSeconds(10);
 
-    // URL вашего Selenoid сервера
-    private static final String SELENOID_URL = "http://applineselenoid.fvds.ru:4444/wd/hub";
-
-    // Локаторы остаются без изменений
+    // Локаторы
     private static final By FIRST_NAME_INPUT = By.id("input-firstname");
     private static final By LAST_NAME_INPUT = By.id("input-lastname");
     private static final By EMAIL_INPUT = By.id("input-email");
@@ -46,12 +47,39 @@ public class RegistrationSteps {
     private static final By ERROR_ELEMENTS = By.cssSelector(".alert-danger, .text-danger, .has-error");
     private static final By SUCCESS_MESSAGE = By.cssSelector(".alert-success, .success, [class*='success']");
 
+    public RegistrationSteps() {
+        loadProperties();
+    }
+
+    private void loadProperties() {
+        try (InputStream input = getClass().getClassLoader().getResourceAsStream("config.properties")) {
+            properties = new Properties();
+            if (input != null) {
+                properties.load(input);
+            } else {
+                // Значения по умолчанию
+                properties.setProperty("run.mode", "local");
+                properties.setProperty("local.browser", "chrome");
+                properties.setProperty("local.headless", "true");
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load configuration", e);
+        }
+    }
+
     @Given("Я открываю страницу регистрации")
     @Step("Открытие страницы регистрации")
     public void openRegistrationPage() {
         try {
-            // Используем актуальную версию браузера
-            driver = createChromeDriverWithLatestVersion();
+            String runMode = properties.getProperty("run.mode", "local");
+
+            if ("selenoid".equalsIgnoreCase(runMode)) {
+                driver = createSelenoidDriver();
+                System.out.println("Running in SELENOID mode");
+            } else {
+                driver = createLocalDriver();
+                System.out.println("Running in LOCAL mode");
+            }
 
             wait = new WebDriverWait(driver, EXPLICIT_WAIT);
             actions = new Actions(driver);
@@ -67,75 +95,83 @@ public class RegistrationSteps {
         }
     }
 
-    // Метод для использования актуальной версии браузера
-    private WebDriver createChromeDriverWithLatestVersion() throws MalformedURLException {
+    private WebDriver createSelenoidDriver() throws MalformedURLException {
         ChromeOptions options = new ChromeOptions();
 
-        // Базовые опции для стабильной работы в Selenoid
-        options.addArguments("--no-sandbox");
-        options.addArguments("--disable-dev-shm-usage");
-        options.addArguments("--headless"); // для отладки можно закомментировать
-        options.addArguments("--window-size=1920,1080");
-        options.addArguments("--disable-gpu");
-        options.addArguments("--remote-allow-origins=*");
-
-        // Современные опции для актуальных версий Chrome
-        options.addArguments("--disable-blink-features=AutomationControlled");
-        options.addArguments("--disable-features=VizDisplayCompositor");
-        options.addArguments("--disable-background-timer-throttling");
-        options.addArguments("--disable-backgrounding-occluded-windows");
-        options.addArguments("--disable-renderer-backgrounding");
-        options.addArguments("--disable-features=TranslateUI");
-        options.addArguments("--no-default-browser-check");
-        options.addArguments("--disable-component-update");
-
-        // Экспериментальные опции для стабильности
-        options.setExperimentalOption("excludeSwitches", new String[]{"enable-automation"});
-        options.setExperimentalOption("useAutomationExtension", false);
-
-        // Для актуальной версии можно либо не указывать версию, либо указать "latest"
-        // options.setBrowserVersion("latest"); // Работает в некоторых конфигурациях Selenoid
-
-        // Параметры для Selenoid
-        Map<String, Object> selenoidOptions = new HashMap<>();
-        selenoidOptions.put("enableVNC", true);
-        selenoidOptions.put("enableVideo", false);
-        selenoidOptions.put("name", "Registration Tests - Latest Chrome");
-
-        // Дополнительные параметры для актуальных версий
-        selenoidOptions.put("screenResolution", "1920x1080x24");
-        selenoidOptions.put("env", new String[]{"LANG=ru_RU.UTF-8", "LANGUAGE=ru:en", "LC_ALL=ru_RU.UTF-8"});
-
-        options.setCapability("selenoid:options", selenoidOptions);
-
-        System.out.println("Connecting to Selenoid with latest Chrome version...");
-        return new RemoteWebDriver(new URL(SELENOID_URL), options);
-    }
-
-    // Альтернативный метод с явным указанием версии (если нужно)
-    private WebDriver createChromeDriverWithSpecificVersion(String version) throws MalformedURLException {
-        ChromeOptions options = new ChromeOptions();
-
-        // Базовые опции
+        // Базовые опции для Selenoid
         options.addArguments("--no-sandbox");
         options.addArguments("--disable-dev-shm-usage");
         options.addArguments("--headless");
         options.addArguments("--window-size=1920,1080");
         options.addArguments("--remote-allow-origins=*");
 
-        // Указываем конкретную версию
-        options.setBrowserVersion(version);
+        // Дополнительные опции
+        options.addArguments("--disable-blink-features=AutomationControlled");
+        options.setExperimentalOption("excludeSwitches", new String[]{"enable-automation"});
+
+        // Версия браузера
+        String browserVersion = properties.getProperty("browser.version", "latest");
+        if (!"latest".equals(browserVersion)) {
+            options.setBrowserVersion(browserVersion);
+        }
 
         // Параметры для Selenoid
         Map<String, Object> selenoidOptions = new HashMap<>();
-        selenoidOptions.put("enableVNC", true);
-        selenoidOptions.put("enableVideo", false);
-        selenoidOptions.put("name", "Registration Tests - Chrome " + version);
+        selenoidOptions.put("enableVNC", Boolean.parseBoolean(properties.getProperty("enable.vnc", "true")));
+        selenoidOptions.put("enableVideo", Boolean.parseBoolean(properties.getProperty("enable.video", "false")));
+        selenoidOptions.put("name", "Registration Tests");
 
         options.setCapability("selenoid:options", selenoidOptions);
 
-        System.out.println("Connecting to Selenoid with Chrome version: " + version);
-        return new RemoteWebDriver(new URL(SELENOID_URL), options);
+        String selenoidUrl = properties.getProperty("selenoid.url");
+        return new RemoteWebDriver(new URL(selenoidUrl), options);
+    }
+
+    private WebDriver createLocalDriver() {
+        String browser = properties.getProperty("local.browser", "chrome");
+        boolean headless = Boolean.parseBoolean(properties.getProperty("local.headless", "true"));
+
+        switch (browser.toLowerCase()) {
+            case "chrome":
+                return createLocalChromeDriver(headless);
+            case "firefox":
+                return createLocalFirefoxDriver(headless);
+            default:
+                throw new IllegalArgumentException("Unsupported browser: " + browser);
+        }
+    }
+
+    private WebDriver createLocalFirefoxDriver(boolean headless) {
+        // Аналогично для Firefox, если нужно
+        // FirefoxOptions options = new FirefoxOptions();
+        // if (headless) {
+        //     options.addArguments("--headless");
+        // }
+        // return new FirefoxDriver(options);
+
+        // Пока возвращаем Chrome для простоты
+        return createLocalChromeDriver(headless);
+    }
+
+    private WebDriver createLocalChromeDriver(boolean headless) {
+        ChromeOptions options = new ChromeOptions();
+
+        if (headless) {
+            options.addArguments("--headless");
+        }
+
+        options.addArguments("--window-size=1920,1080");
+        options.addArguments("--disable-gpu");
+        options.addArguments("--no-sandbox");
+        options.addArguments("--disable-dev-shm-usage");
+        options.addArguments("--remote-allow-origins=*");
+
+        // Дополнительные опции для лучшей стабильности
+        options.addArguments("--disable-extensions");
+        options.addArguments("--disable-plugins");
+        options.addArguments("--disable-background-timer-throttling");
+
+        return new ChromeDriver(options);
     }
 
     @When("Я заполняю форму регистрации с невалидным email")
