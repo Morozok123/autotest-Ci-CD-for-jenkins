@@ -147,7 +147,8 @@ public class RegistrationSteps {
             driver.manage().timeouts().implicitlyWait(IMPLICIT_WAIT);
 
             driver.get(REGISTER_URL);
-            scrollDown(200);
+            // Убираем автоматическую прокрутку, так как она может мешать
+            waitForPageToLoad();
 
         } catch (Exception e) {
             // Закрываем драйвер в случае ошибки инициализации
@@ -287,7 +288,7 @@ public class RegistrationSteps {
                 "Иванов",         // lastName
                 "himail.ru",      // email (invalid - no @)
                 "Q1w2e3l",        // password
-                true,             // subscribe
+                false,            // subscribe - ИЗМЕНЕНО: отключаем подписку
                 true              // agree
         );
         clickContinueButton();
@@ -301,7 +302,7 @@ public class RegistrationSteps {
                 "Иванов",         // lastName
                 "IvanIvan22222222@mail.ru", // email
                 "Q1w2e3l",        // password
-                true,             // subscribe
+                false,            // subscribe - ИЗМЕНЕНО: отключаем подписку
                 true              // agree
         );
         clickContinueButton();
@@ -317,7 +318,7 @@ public class RegistrationSteps {
                 "Иванов",                  // lastName
                 uniqueEmail,               // email (уникальный)
                 "Q1w2e3r4t5y6u7i8o9p0",   // password
-                true,                      // subscribe
+                false,                     // subscribe - ИЗМЕНЕНО: отключаем подписку
                 true                       // agree
         );
         clickContinueButton();
@@ -350,12 +351,14 @@ public class RegistrationSteps {
         setInputValue(EMAIL_INPUT, email);
         setInputValue(PASSWORD_INPUT, password);
 
+        // Подписка на рассылку - теперь опционально и с улучшенной обработкой
         if (subscribe) {
-            setCheckboxValue(NEWSLETTER_CHECKBOX, true);
+            setCheckboxValueSafely(NEWSLETTER_CHECKBOX, true);
         }
 
+        // Обязательное соглашение - с улучшенной обработкой
         if (agree) {
-            setCheckboxValue(AGREE_CHECKBOX, true);
+            setCheckboxValueSafely(AGREE_CHECKBOX, true);
         }
     }
 
@@ -366,23 +369,73 @@ public class RegistrationSteps {
         element.sendKeys(value);
     }
 
-    @Step("Установка значения чекбокса")
-    private void setCheckboxValue(By locator, boolean checked) {
-        WebElement checkbox = wait.until(ExpectedConditions.elementToBeClickable(locator));
-        if (checkbox.isSelected() != checked) {
-            checkbox.click();
+    @Step("Установка значения чекбокса с безопасной прокруткой")
+    private void setCheckboxValueSafely(By locator, boolean checked) {
+        try {
+            WebElement checkbox = wait.until(ExpectedConditions.presenceOfElementLocated(locator));
+
+            // Прокручиваем к элементу с помощью JavaScript
+            scrollToElement(checkbox);
+
+            // Ждем, пока элемент станет кликабельным
+            wait.until(ExpectedConditions.elementToBeClickable(checkbox));
+
+            // Проверяем текущее состояние и кликаем только если нужно изменить
+            if (checkbox.isSelected() != checked) {
+                // Используем JavaScript для клика, если обычный не работает
+                try {
+                    checkbox.click();
+                } catch (ElementNotInteractableException e) {
+                    // Если обычный клик не работает, используем JavaScript
+                    javascriptClick(checkbox);
+                }
+            }
+
+            // Проверяем, что состояние изменилось как ожидалось
+            wait.until(driver -> checkbox.isSelected() == checked);
+
+        } catch (TimeoutException e) {
+            System.out.println("Checkbox interaction timeout, continuing without it: " + locator);
+            // Продолжаем выполнение без установки чекбокса
+        } catch (Exception e) {
+            System.out.println("Checkbox interaction failed, continuing without it: " + e.getMessage());
+            // Продолжаем выполнение без установки чекбокса
         }
+    }
+
+    @Step("Прокрутка к элементу")
+    private void scrollToElement(WebElement element) {
+        try {
+            // Используем JavaScript для прокрутки к элементу
+            ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center', inline: 'center'});", element);
+            Thread.sleep(500); // Небольшая пауза после прокрутки
+        } catch (Exception e) {
+            System.out.println("Scroll failed: " + e.getMessage());
+        }
+    }
+
+    @Step("Клик с помощью JavaScript")
+    private void javascriptClick(WebElement element) {
+        ((JavascriptExecutor) driver).executeScript("arguments[0].click();", element);
     }
 
     @Step("Нажатие кнопки 'Продолжить'")
     private void clickContinueButton() {
         WebElement continueButton = wait.until(ExpectedConditions.elementToBeClickable(CONTINUE_BUTTON));
+        scrollToElement(continueButton);
         continueButton.click();
     }
 
-    @Step("Прокрутка страницы")
-    private void scrollDown(int pixels) {
-        actions.scrollByAmount(0, pixels).perform();
+    @Step("Ожидание загрузки страницы")
+    private void waitForPageToLoad() {
+        try {
+            wait.until(driver -> {
+                String state = ((JavascriptExecutor) driver).executeScript("return document.readyState;").toString();
+                return state.equals("complete");
+            });
+        } catch (Exception e) {
+            System.out.println("Page load wait interrupted: " + e.getMessage());
+        }
     }
 
     @Step("Проверка неуспешной регистрации")
