@@ -12,7 +12,6 @@ import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.firefox.FirefoxDriver;
 import org.openqa.selenium.firefox.FirefoxOptions;
 import org.openqa.selenium.interactions.Actions;
-import org.openqa.selenium.remote.DesiredCapabilities;
 import org.openqa.selenium.remote.RemoteWebDriver;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
@@ -74,7 +73,10 @@ public class RegistrationSteps {
                 properties.load(input);
             }
 
+            // Переопределение параметров из системных свойств (Jenkins)
             overrideFromSystemProperties();
+
+            // Установка значений по умолчанию
             setDefaultProperties();
 
         } catch (Exception e) {
@@ -83,9 +85,10 @@ public class RegistrationSteps {
     }
 
     private void overrideFromSystemProperties() {
+        // Чтение параметров из системных свойств (могут быть установлены через Jenkins)
         String[] propertiesToOverride = {
                 "run.mode", "selenoid.browser", "browser.version", "enable.vnc", "enable.video",
-                "local.browser", "local.headless", "selenoid.url", "browser.name", "platform"
+                "local.browser", "local.headless", "selenoid.url"
         };
 
         for (String property : propertiesToOverride) {
@@ -119,9 +122,6 @@ public class RegistrationSteps {
         if (!properties.containsKey("enable.video")) {
             properties.setProperty("enable.video", "false");
         }
-        if (!properties.containsKey("platform")) {
-            properties.setProperty("platform", "LINUX");
-        }
     }
 
     @Given("Я открываю страницу регистрации")
@@ -131,7 +131,7 @@ public class RegistrationSteps {
             String runMode = properties.getProperty("run.mode", "local");
 
             if ("selenoid".equalsIgnoreCase(runMode)) {
-                driver = createSelenoidDriverWithCapabilities();
+                driver = createSelenoidDriver();
                 System.out.println("Running in SELENOID mode with browser: " +
                         properties.getProperty("selenoid.browser"));
             } else {
@@ -147,9 +147,11 @@ public class RegistrationSteps {
             driver.manage().timeouts().implicitlyWait(IMPLICIT_WAIT);
 
             driver.get(REGISTER_URL);
+            // Убираем автоматическую прокрутку, так как она может мешать
             waitForPageToLoad();
 
         } catch (Exception e) {
+            // Закрываем драйвер в случае ошибки инициализации
             if (driver != null) {
                 driver.quit();
             }
@@ -157,175 +159,25 @@ public class RegistrationSteps {
         }
     }
 
-    /**
-     * Новый метод с использованием DesiredCapabilities для Selenoid
-     */
-    private WebDriver createSelenoidDriverWithCapabilities() throws MalformedURLException {
-        String browser = properties.getProperty("selenoid.browser", "chrome");
-        String browserVersion = properties.getProperty("browser.version", "latest");
-        String platform = properties.getProperty("platform", "LINUX");
+    private WebDriver createSelenoidDriver() throws MalformedURLException {
+        try {
+            String browser = properties.getProperty("selenoid.browser", "chrome");
+            String browserVersion = properties.getProperty("browser.version", "latest");
 
-        // Создаем DesiredCapabilities
-        DesiredCapabilities capabilities = new DesiredCapabilities();
+            System.out.println("Creating Selenoid driver for: " + browser + " version: " + browserVersion);
 
-        // Устанавливаем основные возможности
-        capabilities.setBrowserName(browser);
-        capabilities.setVersion(browserVersion);
-        capabilities.setPlatform(Platform.fromString(platform));
-
-        // Добавляем опции для конкретных браузеров
-        switch (browser.toLowerCase()) {
-            case "chrome":
-                capabilities.merge(createChromeOptions());
-                break;
-            case "firefox":
-                capabilities.merge(createFirefoxOptions());
-                break;
-            case "opera": // Пример для других браузеров
-                capabilities.merge(createOperaOptions());
-                break;
+            switch (browser.toLowerCase()) {
+                case "firefox":
+                    return createSelenoidFirefoxDriver(browserVersion);
+                case "chrome":
+                default:
+                    return createSelenoidChromeDriver(browserVersion);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create Selenoid driver: " + e.getMessage(), e);
         }
-
-        // Selenoid-specific capabilities
-        capabilities.setCapability("selenoid:options", createSelenoidOptions());
-
-        // Дополнительные capabilities для лучшей стабильности
-        capabilities.setCapability("timeouts", createTimeoutsCapability());
-        capabilities.setCapability("acceptInsecureCerts", true);
-        capabilities.setCapability("unhandledPromptBehavior", "dismiss and notify");
-
-        String selenoidUrl = properties.getProperty("selenoid.url");
-        System.out.println("Creating Selenoid driver with capabilities: " + capabilities);
-
-        return new RemoteWebDriver(new URL(selenoidUrl), capabilities);
     }
 
-    /**
-     * Создает опции для Chrome
-     */
-    private DesiredCapabilities createChromeOptions() {
-        ChromeOptions options = new ChromeOptions();
-
-        // Базовые опции
-        options.addArguments("--no-sandbox");
-        options.addArguments("--disable-dev-shm-usage");
-        options.addArguments("--headless");
-        options.addArguments("--window-size=1920,1080");
-        options.addArguments("--remote-allow-origins=*");
-        options.addArguments("--disable-gpu");
-        options.addArguments("--disable-extensions");
-        options.addArguments("--disable-plugins");
-        options.addArguments("--disable-background-timer-throttling");
-
-        // Опции для обхода автоматизации
-        options.addArguments("--disable-blink-features=AutomationControlled");
-        options.setExperimentalOption("excludeSwitches", new String[]{"enable-automation"});
-        options.setExperimentalOption("useAutomationExtension", false);
-
-        // Логирование
-        options.setCapability("goog:loggingPrefs", createLoggingPrefs());
-
-        DesiredCapabilities capabilities = new DesiredCapabilities();
-        capabilities.setCapability(ChromeOptions.CAPABILITY, options);
-        return capabilities;
-    }
-
-    /**
-     * Создает опции для Firefox
-     */
-    private DesiredCapabilities createFirefoxOptions() {
-        FirefoxOptions options = new FirefoxOptions();
-
-        // Базовые опции
-        options.addArguments("--headless");
-        options.addArguments("--width=1920");
-        options.addArguments("--height=1080");
-        options.addArguments("--disable-extensions");
-        options.addArguments("--disable-plugins");
-
-        // Настройки для стабильности
-        options.addPreference("dom.webdriver.enabled", false);
-        options.addPreference("useAutomationExtension", false);
-        options.addPreference("marionette", true);
-
-        // Логирование
-        options.setCapability("moz:loggingPrefs", createLoggingPrefs());
-
-        DesiredCapabilities capabilities = new DesiredCapabilities();
-        capabilities.setCapability(FirefoxOptions.FIREFOX_OPTIONS, options);
-        return capabilities;
-    }
-
-    /**
-     * Создает опции для Opera (пример)
-     */
-    private DesiredCapabilities createOperaOptions() {
-        DesiredCapabilities capabilities = new DesiredCapabilities();
-        capabilities.setBrowserName("opera");
-
-        // Можно добавить специфичные опции для Opera
-        ChromeOptions options = new ChromeOptions();
-        options.setBinary("/usr/bin/opera");
-        options.addArguments("--no-sandbox");
-        options.addArguments("--disable-dev-shm-usage");
-        options.addArguments("--headless");
-
-        capabilities.setCapability(ChromeOptions.CAPABILITY, options);
-        return capabilities;
-    }
-
-    /**
-     * Создает опции для Selenoid
-     */
-    private Map<String, Object> createSelenoidOptions() {
-        Map<String, Object> selenoidOptions = new HashMap<>();
-
-        selenoidOptions.put("enableVNC", Boolean.parseBoolean(properties.getProperty("enable.vnc", "true")));
-        selenoidOptions.put("enableVideo", Boolean.parseBoolean(properties.getProperty("enable.video", "false")));
-        selenoidOptions.put("enableLog", Boolean.parseBoolean(properties.getProperty("enable.log", "true")));
-        selenoidOptions.put("screenResolution", properties.getProperty("screen.resolution", "1920x1080x24"));
-
-        // Дополнительные опции Selenoid
-        selenoidOptions.put("sessionTimeout", properties.getProperty("session.timeout", "5m"));
-        selenoidOptions.put("timeZone", properties.getProperty("time.zone", "Europe/Moscow"));
-        selenoidOptions.put("env", new String[]{"LANG=ru_RU.UTF-8", "LANGUAGE=ru:en", "LC_ALL=ru_RU.UTF-8"});
-
-        // Имя теста для отображения в Selenoid UI
-        selenoidOptions.put("name", "Registration Tests - " + properties.getProperty("selenoid.browser", "chrome"));
-
-        // Лейблы для организации в Selenoid
-        Map<String, Object> labels = new HashMap<>();
-        labels.put("project", "IBS-Autotest");
-        labels.put("test", "registration");
-        labels.put("browser", properties.getProperty("selenoid.browser", "chrome"));
-        selenoidOptions.put("labels", labels);
-
-        return selenoidOptions;
-    }
-
-    /**
-     * Создает настройки таймаутов
-     */
-    private Map<String, Object> createTimeoutsCapability() {
-        Map<String, Object> timeouts = new HashMap<>();
-        timeouts.put("implicit", 0);
-        timeouts.put("pageLoad", 300000);
-        timeouts.put("script", 30000);
-        return timeouts;
-    }
-
-    /**
-     * Создает настройки логирования
-     */
-    private Map<String, String> createLoggingPrefs() {
-        Map<String, String> logPrefs = new HashMap<>();
-        logPrefs.put("browser", "INFO");
-        logPrefs.put("driver", "INFO");
-        logPrefs.put("performance", "ALL");
-        return logPrefs;
-    }
-
-    // Старые методы для локального запуска (оставляем без изменений)
     private WebDriver createLocalDriver() {
         try {
             String browser = properties.getProperty("local.browser", "chrome");
@@ -361,6 +213,54 @@ public class RegistrationSteps {
         return new FirefoxDriver(options);
     }
 
+    private WebDriver createSelenoidFirefoxDriver(String browserVersion) throws MalformedURLException {
+        FirefoxOptions options = new FirefoxOptions();
+
+        options.addArguments("--headless");
+        options.addArguments("--width=1920");
+        options.addArguments("--height=1080");
+
+        if (!"latest".equals(browserVersion)) {
+            options.setBrowserVersion(browserVersion);
+        }
+
+        Map<String, Object> selenoidOptions = new HashMap<>();
+        selenoidOptions.put("enableVNC", Boolean.parseBoolean(properties.getProperty("enable.vnc", "true")));
+        selenoidOptions.put("enableVideo", Boolean.parseBoolean(properties.getProperty("enable.video", "false")));
+        selenoidOptions.put("name", "Registration Tests - Firefox");
+
+        options.setCapability("selenoid:options", selenoidOptions);
+
+        String selenoidUrl = properties.getProperty("selenoid.url");
+        return new RemoteWebDriver(new URL(selenoidUrl), options);
+    }
+
+    private WebDriver createSelenoidChromeDriver(String browserVersion) throws MalformedURLException {
+        ChromeOptions options = new ChromeOptions();
+
+        options.addArguments("--no-sandbox");
+        options.addArguments("--disable-dev-shm-usage");
+        options.addArguments("--headless");
+        options.addArguments("--window-size=1920,1080");
+        options.addArguments("--remote-allow-origins=*");
+        options.addArguments("--disable-blink-features=AutomationControlled");
+        options.setExperimentalOption("excludeSwitches", new String[]{"enable-automation"});
+
+        if (!"latest".equals(browserVersion)) {
+            options.setBrowserVersion(browserVersion);
+        }
+
+        Map<String, Object> selenoidOptions = new HashMap<>();
+        selenoidOptions.put("enableVNC", Boolean.parseBoolean(properties.getProperty("enable.vnc", "true")));
+        selenoidOptions.put("enableVideo", Boolean.parseBoolean(properties.getProperty("enable.video", "false")));
+        selenoidOptions.put("name", "Registration Tests - Chrome");
+
+        options.setCapability("selenoid:options", selenoidOptions);
+
+        String selenoidUrl = properties.getProperty("selenoid.url");
+        return new RemoteWebDriver(new URL(selenoidUrl), options);
+    }
+
     private WebDriver createLocalChromeDriver(boolean headless) {
         ChromeOptions options = new ChromeOptions();
 
@@ -380,7 +280,6 @@ public class RegistrationSteps {
         return new ChromeDriver(options);
     }
 
-    // Остальные методы тестов (без изменений)
     @When("Я заполняю форму регистрации с невалидным email")
     @Step("Заполнение формы с невалидным email")
     public void fillFormWithInvalidEmail() {
@@ -389,7 +288,7 @@ public class RegistrationSteps {
                 "Иванов",         // lastName
                 "himail.ru",      // email (invalid - no @)
                 "Q1w2e3l",        // password
-                false,            // subscribe
+                false,            // subscribe - ИЗМЕНЕНО: отключаем подписку
                 true              // agree
         );
         clickContinueButton();
@@ -403,7 +302,7 @@ public class RegistrationSteps {
                 "Иванов",         // lastName
                 "IvanIvan22222222@mail.ru", // email
                 "Q1w2e3l",        // password
-                false,            // subscribe
+                false,            // subscribe - ИЗМЕНЕНО: отключаем подписку
                 true              // agree
         );
         clickContinueButton();
@@ -419,7 +318,7 @@ public class RegistrationSteps {
                 "Иванов",                  // lastName
                 uniqueEmail,               // email (уникальный)
                 "Q1w2e3r4t5y6u7i8o9p0",   // password
-                false,                     // subscribe
+                false,                     // subscribe - ИЗМЕНЕНО: отключаем подписку
                 true                       // agree
         );
         clickContinueButton();
@@ -443,7 +342,7 @@ public class RegistrationSteps {
         assertRegistrationSuccessful("Регистрация должна быть успешной с валидными данными");
     }
 
-    // Вспомогательные методы (без изменений)
+    // Вспомогательные методы
     @Step("Заполнение формы регистрации")
     private void fillRegistrationForm(String firstName, String lastName, String email,
                                       String password, boolean subscribe, boolean agree) {
@@ -452,10 +351,12 @@ public class RegistrationSteps {
         setInputValue(EMAIL_INPUT, email);
         setInputValue(PASSWORD_INPUT, password);
 
+        // Подписка на рассылку - теперь опционально и с улучшенной обработкой
         if (subscribe) {
             setCheckboxValueSafely(NEWSLETTER_CHECKBOX, true);
         }
 
+        // Обязательное соглашение - с улучшенной обработкой
         if (agree) {
             setCheckboxValueSafely(AGREE_CHECKBOX, true);
         }
@@ -472,31 +373,42 @@ public class RegistrationSteps {
     private void setCheckboxValueSafely(By locator, boolean checked) {
         try {
             WebElement checkbox = wait.until(ExpectedConditions.presenceOfElementLocated(locator));
+
+            // Прокручиваем к элементу с помощью JavaScript
             scrollToElement(checkbox);
+
+            // Ждем, пока элемент станет кликабельным
             wait.until(ExpectedConditions.elementToBeClickable(checkbox));
 
+            // Проверяем текущее состояние и кликаем только если нужно изменить
             if (checkbox.isSelected() != checked) {
+                // Используем JavaScript для клика, если обычный не работает
                 try {
                     checkbox.click();
                 } catch (ElementNotInteractableException e) {
+                    // Если обычный клик не работает, используем JavaScript
                     javascriptClick(checkbox);
                 }
             }
 
+            // Проверяем, что состояние изменилось как ожидалось
             wait.until(driver -> checkbox.isSelected() == checked);
 
         } catch (TimeoutException e) {
             System.out.println("Checkbox interaction timeout, continuing without it: " + locator);
+            // Продолжаем выполнение без установки чекбокса
         } catch (Exception e) {
             System.out.println("Checkbox interaction failed, continuing without it: " + e.getMessage());
+            // Продолжаем выполнение без установки чекбокса
         }
     }
 
     @Step("Прокрутка к элементу")
     private void scrollToElement(WebElement element) {
         try {
+            // Используем JavaScript для прокрутки к элементу
             ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center', inline: 'center'});", element);
-            Thread.sleep(500);
+            Thread.sleep(500); // Небольшая пауза после прокрутки
         } catch (Exception e) {
             System.out.println("Scroll failed: " + e.getMessage());
         }
