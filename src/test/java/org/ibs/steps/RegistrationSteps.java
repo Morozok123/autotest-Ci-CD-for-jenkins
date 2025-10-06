@@ -1,5 +1,7 @@
 package org.ibs.steps;
 
+import io.cucumber.java.After;
+import io.cucumber.java.Before;
 import io.cucumber.java.en.Given;
 import io.cucumber.java.en.When;
 import io.cucumber.java.en.Then;
@@ -35,7 +37,7 @@ public class RegistrationSteps {
     private static final String BASE_URL = "http://217.74.37.176";
     private static final String REGISTER_URL = BASE_URL + "/?route=account/register&language=ru-ru";
     private static final Duration IMPLICIT_WAIT = Duration.ofSeconds(10);
-    private static final Duration EXPLICIT_WAIT = Duration.ofSeconds(10);
+    private static final Duration EXPLICIT_WAIT = Duration.ofSeconds(15);
 
     // Локаторы
     private static final By FIRST_NAME_INPUT = By.id("input-firstname");
@@ -48,8 +50,20 @@ public class RegistrationSteps {
     private static final By ERROR_ELEMENTS = By.cssSelector(".alert-danger, .text-danger, .has-error");
     private static final By SUCCESS_MESSAGE = By.cssSelector(".alert-success, .success, [class*='success']");
 
-    public RegistrationSteps() {
+    @Before
+    public void setUp() {
         loadProperties();
+    }
+
+    @After
+    public void tearDown() {
+        if (driver != null) {
+            try {
+                driver.quit();
+            } catch (Exception e) {
+                System.err.println("Error during driver quit: " + e.getMessage());
+            }
+        }
     }
 
     private void loadProperties() {
@@ -59,6 +73,7 @@ public class RegistrationSteps {
                 properties.load(input);
             }
 
+            // Переопределение параметров из системных свойств (Jenkins)
             overrideFromSystemProperties();
 
             // Установка значений по умолчанию
@@ -70,7 +85,7 @@ public class RegistrationSteps {
     }
 
     private void overrideFromSystemProperties() {
-
+        // Чтение параметров из системных свойств (могут быть установлены через Jenkins)
         String[] propertiesToOverride = {
                 "run.mode", "selenoid.browser", "browser.version", "enable.vnc", "enable.video",
                 "local.browser", "local.headless", "selenoid.url"
@@ -135,34 +150,50 @@ public class RegistrationSteps {
             scrollDown(200);
 
         } catch (Exception e) {
-            throw new RuntimeException("Failed to initialize WebDriver", e);
+            // Закрываем драйвер в случае ошибки инициализации
+            if (driver != null) {
+                driver.quit();
+            }
+            throw new RuntimeException("Failed to initialize WebDriver: " + e.getMessage(), e);
         }
     }
 
     private WebDriver createSelenoidDriver() throws MalformedURLException {
-        String browser = properties.getProperty("selenoid.browser", "chrome");
-        String browserVersion = properties.getProperty("browser.version", "latest");
+        try {
+            String browser = properties.getProperty("selenoid.browser", "chrome");
+            String browserVersion = properties.getProperty("browser.version", "latest");
 
-        switch (browser.toLowerCase()) {
-            case "firefox":
-                return createSelenoidFirefoxDriver(browserVersion);
-            case "chrome":
-            default:
-                return createSelenoidChromeDriver(browserVersion);
+            System.out.println("Creating Selenoid driver for: " + browser + " version: " + browserVersion);
+
+            switch (browser.toLowerCase()) {
+                case "firefox":
+                    return createSelenoidFirefoxDriver(browserVersion);
+                case "chrome":
+                default:
+                    return createSelenoidChromeDriver(browserVersion);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create Selenoid driver: " + e.getMessage(), e);
         }
     }
 
     private WebDriver createLocalDriver() {
-        String browser = properties.getProperty("local.browser", "chrome");
-        boolean headless = Boolean.parseBoolean(properties.getProperty("local.headless", "true"));
+        try {
+            String browser = properties.getProperty("local.browser", "chrome");
+            boolean headless = Boolean.parseBoolean(properties.getProperty("local.headless", "true"));
 
-        switch (browser.toLowerCase()) {
-            case "chrome":
-                return createLocalChromeDriver(headless);
-            case "firefox":
-                return createLocalFirefoxDriver(headless);
-            default:
-                throw new IllegalArgumentException("Unsupported browser: " + browser);
+            System.out.println("Creating Local driver for: " + browser + " headless: " + headless);
+
+            switch (browser.toLowerCase()) {
+                case "chrome":
+                    return createLocalChromeDriver(headless);
+                case "firefox":
+                    return createLocalFirefoxDriver(headless);
+                default:
+                    throw new IllegalArgumentException("Unsupported browser: " + browser);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create Local driver: " + e.getMessage(), e);
         }
     }
 
@@ -248,7 +279,6 @@ public class RegistrationSteps {
         return new ChromeDriver(options);
     }
 
-    // Остальные методы остаются без изменений
     @When("Я заполняю форму регистрации с невалидным email")
     @Step("Заполнение формы с невалидным email")
     public void fillFormWithInvalidEmail() {
@@ -297,21 +327,18 @@ public class RegistrationSteps {
     @Step("Проверка неуспешной регистрации из-за email")
     public void assertRegistrationFailedDueToEmail() {
         assertRegistrationFailed("Регистрация должна быть провальной из-за отсутствия @ в email");
-        driver.quit();
     }
 
     @Then("Регистрация должна быть провальной из-за наличия цифр в поле 'Имя'")
     @Step("Проверка неуспешной регистрации из-за цифр в имени")
     public void assertRegistrationFailedDueToDigits() {
         assertRegistrationFailed("Регистрация должна быть провальной из-за наличия цифр в поле 'Имя'");
-        driver.quit();
     }
 
     @Then("Регистрация должна быть успешной")
     @Step("Проверка успешной регистрации")
     public void assertRegistrationSuccessful() {
         assertRegistrationSuccessful("Регистрация должна быть успешной с валидными данными");
-        driver.quit();
     }
 
     // Вспомогательные методы
