@@ -57,14 +57,55 @@ public class RegistrationSteps {
             properties = new Properties();
             if (input != null) {
                 properties.load(input);
-            } else {
-                // Значения по умолчанию
-                properties.setProperty("run.mode", "local");
-                properties.setProperty("local.browser", "chrome");
-                properties.setProperty("local.headless", "true");
             }
+
+            overrideFromSystemProperties();
+
+            // Установка значений по умолчанию
+            setDefaultProperties();
+
         } catch (Exception e) {
             throw new RuntimeException("Failed to load configuration", e);
+        }
+    }
+
+    private void overrideFromSystemProperties() {
+
+        String[] propertiesToOverride = {
+                "run.mode", "selenoid.browser", "browser.version", "enable.vnc", "enable.video",
+                "local.browser", "local.headless", "selenoid.url"
+        };
+
+        for (String property : propertiesToOverride) {
+            String systemValue = System.getProperty(property);
+            if (systemValue != null && !systemValue.trim().isEmpty()) {
+                properties.setProperty(property, systemValue);
+                System.out.println("Overridden property from system: " + property + " = " + systemValue);
+            }
+        }
+    }
+
+    private void setDefaultProperties() {
+        if (!properties.containsKey("run.mode")) {
+            properties.setProperty("run.mode", "local");
+        }
+        if (!properties.containsKey("local.browser")) {
+            properties.setProperty("local.browser", "chrome");
+        }
+        if (!properties.containsKey("local.headless")) {
+            properties.setProperty("local.headless", "true");
+        }
+        if (!properties.containsKey("selenoid.browser")) {
+            properties.setProperty("selenoid.browser", "chrome");
+        }
+        if (!properties.containsKey("browser.version")) {
+            properties.setProperty("browser.version", "latest");
+        }
+        if (!properties.containsKey("enable.vnc")) {
+            properties.setProperty("enable.vnc", "true");
+        }
+        if (!properties.containsKey("enable.video")) {
+            properties.setProperty("enable.video", "false");
         }
     }
 
@@ -76,10 +117,12 @@ public class RegistrationSteps {
 
             if ("selenoid".equalsIgnoreCase(runMode)) {
                 driver = createSelenoidDriver();
-                System.out.println("Running in SELENOID mode");
+                System.out.println("Running in SELENOID mode with browser: " +
+                        properties.getProperty("selenoid.browser"));
             } else {
                 driver = createLocalDriver();
-                System.out.println("Running in LOCAL mode");
+                System.out.println("Running in LOCAL mode with browser: " +
+                        properties.getProperty("local.browser"));
             }
 
             wait = new WebDriverWait(driver, EXPLICIT_WAIT);
@@ -97,15 +140,15 @@ public class RegistrationSteps {
     }
 
     private WebDriver createSelenoidDriver() throws MalformedURLException {
-        String browser = properties.getProperty("selenoid.browser", "chrome"); // Добавлено
+        String browser = properties.getProperty("selenoid.browser", "chrome");
         String browserVersion = properties.getProperty("browser.version", "latest");
 
-        switch (browser.toLowerCase()) { // Добавлено
-            case "firefox": // Добавлено
-                return createSelenoidFirefoxDriver(browserVersion); // Добавлено
-            case "chrome": // Добавлено
-            default: // Добавлено
-                return createSelenoidChromeDriver(browserVersion); // Изменено
+        switch (browser.toLowerCase()) {
+            case "firefox":
+                return createSelenoidFirefoxDriver(browserVersion);
+            case "chrome":
+            default:
+                return createSelenoidChromeDriver(browserVersion);
         }
     }
 
@@ -132,8 +175,6 @@ public class RegistrationSteps {
 
         options.addArguments("--width=1920");
         options.addArguments("--height=1080");
-
-        // Дополнительные опции для лучшей стабильности
         options.addArguments("--disable-extensions");
         options.addArguments("--disable-plugins");
 
@@ -170,8 +211,6 @@ public class RegistrationSteps {
         options.addArguments("--headless");
         options.addArguments("--window-size=1920,1080");
         options.addArguments("--remote-allow-origins=*");
-
-
         options.addArguments("--disable-blink-features=AutomationControlled");
         options.setExperimentalOption("excludeSwitches", new String[]{"enable-automation"});
 
@@ -182,14 +221,13 @@ public class RegistrationSteps {
         Map<String, Object> selenoidOptions = new HashMap<>();
         selenoidOptions.put("enableVNC", Boolean.parseBoolean(properties.getProperty("enable.vnc", "true")));
         selenoidOptions.put("enableVideo", Boolean.parseBoolean(properties.getProperty("enable.video", "false")));
-        selenoidOptions.put("name", "Registration Tests - Chrome"); // Обновлено
+        selenoidOptions.put("name", "Registration Tests - Chrome");
 
         options.setCapability("selenoid:options", selenoidOptions);
 
         String selenoidUrl = properties.getProperty("selenoid.url");
         return new RemoteWebDriver(new URL(selenoidUrl), options);
     }
-
 
     private WebDriver createLocalChromeDriver(boolean headless) {
         ChromeOptions options = new ChromeOptions();
@@ -203,8 +241,6 @@ public class RegistrationSteps {
         options.addArguments("--no-sandbox");
         options.addArguments("--disable-dev-shm-usage");
         options.addArguments("--remote-allow-origins=*");
-
-        // Дополнительные опции для лучшей стабильности
         options.addArguments("--disable-extensions");
         options.addArguments("--disable-plugins");
         options.addArguments("--disable-background-timer-throttling");
@@ -212,6 +248,7 @@ public class RegistrationSteps {
         return new ChromeDriver(options);
     }
 
+    // Остальные методы остаются без изменений
     @When("Я заполняю форму регистрации с невалидным email")
     @Step("Заполнение формы с невалидным email")
     public void fillFormWithInvalidEmail() {
