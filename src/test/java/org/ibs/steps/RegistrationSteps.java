@@ -97,35 +97,16 @@ public class RegistrationSteps {
     }
 
     private WebDriver createSelenoidDriver() throws MalformedURLException {
-        ChromeOptions options = new ChromeOptions();
-
-        // Базовые опции для Selenoid
-        options.addArguments("--no-sandbox");
-        options.addArguments("--disable-dev-shm-usage");
-        options.addArguments("--headless");
-        options.addArguments("--window-size=1920,1080");
-        options.addArguments("--remote-allow-origins=*");
-
-        // Дополнительные опции
-        options.addArguments("--disable-blink-features=AutomationControlled");
-        options.setExperimentalOption("excludeSwitches", new String[]{"enable-automation"});
-
-        // Версия браузера
+        String browser = properties.getProperty("selenoid.browser", "chrome"); // Добавлено
         String browserVersion = properties.getProperty("browser.version", "latest");
-        if (!"latest".equals(browserVersion)) {
-            options.setBrowserVersion(browserVersion);
+
+        switch (browser.toLowerCase()) { // Добавлено
+            case "firefox": // Добавлено
+                return createSelenoidFirefoxDriver(browserVersion); // Добавлено
+            case "chrome": // Добавлено
+            default: // Добавлено
+                return createSelenoidChromeDriver(browserVersion); // Изменено
         }
-
-        // Параметры для Selenoid
-        Map<String, Object> selenoidOptions = new HashMap<>();
-        selenoidOptions.put("enableVNC", Boolean.parseBoolean(properties.getProperty("enable.vnc", "true")));
-        selenoidOptions.put("enableVideo", Boolean.parseBoolean(properties.getProperty("enable.video", "false")));
-        selenoidOptions.put("name", "Registration Tests");
-
-        options.setCapability("selenoid:options", selenoidOptions);
-
-        String selenoidUrl = properties.getProperty("selenoid.url");
-        return new RemoteWebDriver(new URL(selenoidUrl), options);
     }
 
     private WebDriver createLocalDriver() {
@@ -158,6 +139,57 @@ public class RegistrationSteps {
 
         return new FirefoxDriver(options);
     }
+
+    private WebDriver createSelenoidFirefoxDriver(String browserVersion) throws MalformedURLException {
+        FirefoxOptions options = new FirefoxOptions();
+
+        options.addArguments("--headless");
+        options.addArguments("--width=1920");
+        options.addArguments("--height=1080");
+
+        if (!"latest".equals(browserVersion)) {
+            options.setBrowserVersion(browserVersion);
+        }
+
+        Map<String, Object> selenoidOptions = new HashMap<>();
+        selenoidOptions.put("enableVNC", Boolean.parseBoolean(properties.getProperty("enable.vnc", "true")));
+        selenoidOptions.put("enableVideo", Boolean.parseBoolean(properties.getProperty("enable.video", "false")));
+        selenoidOptions.put("name", "Registration Tests - Firefox");
+
+        options.setCapability("selenoid:options", selenoidOptions);
+
+        String selenoidUrl = properties.getProperty("selenoid.url");
+        return new RemoteWebDriver(new URL(selenoidUrl), options);
+    }
+
+    private WebDriver createSelenoidChromeDriver(String browserVersion) throws MalformedURLException {
+        ChromeOptions options = new ChromeOptions();
+
+        options.addArguments("--no-sandbox");
+        options.addArguments("--disable-dev-shm-usage");
+        options.addArguments("--headless");
+        options.addArguments("--window-size=1920,1080");
+        options.addArguments("--remote-allow-origins=*");
+
+
+        options.addArguments("--disable-blink-features=AutomationControlled");
+        options.setExperimentalOption("excludeSwitches", new String[]{"enable-automation"});
+
+        if (!"latest".equals(browserVersion)) {
+            options.setBrowserVersion(browserVersion);
+        }
+
+        Map<String, Object> selenoidOptions = new HashMap<>();
+        selenoidOptions.put("enableVNC", Boolean.parseBoolean(properties.getProperty("enable.vnc", "true")));
+        selenoidOptions.put("enableVideo", Boolean.parseBoolean(properties.getProperty("enable.video", "false")));
+        selenoidOptions.put("name", "Registration Tests - Chrome"); // Обновлено
+
+        options.setCapability("selenoid:options", selenoidOptions);
+
+        String selenoidUrl = properties.getProperty("selenoid.url");
+        return new RemoteWebDriver(new URL(selenoidUrl), options);
+    }
+
 
     private WebDriver createLocalChromeDriver(boolean headless) {
         ChromeOptions options = new ChromeOptions();
