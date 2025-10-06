@@ -8,6 +8,7 @@ import org.openqa.selenium.*;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.firefox.FirefoxDriver;
+import org.openqa.selenium.firefox.FirefoxOptions;
 import org.openqa.selenium.interactions.Actions;
 import org.openqa.selenium.remote.RemoteWebDriver;
 import org.openqa.selenium.support.ui.ExpectedConditions;
@@ -142,15 +143,20 @@ public class RegistrationSteps {
     }
 
     private WebDriver createLocalFirefoxDriver(boolean headless) {
-        // Аналогично для Firefox, если нужно
-        // FirefoxOptions options = new FirefoxOptions();
-        // if (headless) {
-        //     options.addArguments("--headless");
-        // }
-        // return new FirefoxDriver(options);
+        FirefoxOptions options = new FirefoxOptions();
 
-        // Пока возвращаем Chrome для простоты
-        return createLocalChromeDriver(headless);
+        if (headless) {
+            options.addArguments("--headless");
+        }
+
+        options.addArguments("--width=1920");
+        options.addArguments("--height=1080");
+
+        // Дополнительные опции для лучшей стабильности
+        options.addArguments("--disable-extensions");
+        options.addArguments("--disable-plugins");
+
+        return new FirefoxDriver(options);
     }
 
     private WebDriver createLocalChromeDriver(boolean headless) {
