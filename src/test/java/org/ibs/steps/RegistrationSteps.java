@@ -68,91 +68,62 @@ public class RegistrationSteps {
     }
 
     private void loadProperties() {
-        try (InputStream input = getClass().getClassLoader().getResourceAsStream("config.properties")) {
+        // Определяем какой конфиг использовать
+        String configFile = determineConfigFile();
+
+        try (InputStream input = getClass().getClassLoader().getResourceAsStream(configFile)) {
             properties = new Properties();
             if (input != null) {
                 properties.load(input);
-                System.out.println("=== LOADED FROM config.properties ===");
-                properties.forEach((key, value) -> System.out.println("  " + key + " = " + value));
+                System.out.println("=== LOADED CONFIG: " + configFile + " ===");
+            } else {
+                // Fallback на стандартный config.properties
+                try (InputStream defaultInput = getClass().getClassLoader().getResourceAsStream("config.properties")) {
+                    properties = new Properties();
+                    if (defaultInput != null) {
+                        properties.load(defaultInput);
+                        System.out.println("=== LOADED DEFAULT CONFIG ===");
+                    }
+                }
             }
 
-            // Переопределение параметров из системных свойств (Jenkins)
-            overrideFromSystemProperties();
-
-            // Установка значений по умолчанию
-            setDefaultProperties();
-
-            System.out.println("=== FINAL PROPERTIES ===");
             properties.forEach((key, value) -> System.out.println("  " + key + " = " + value));
 
         } catch (Exception e) {
-            throw new RuntimeException("Failed to load configuration", e);
+            System.out.println("Failed to load configuration: " + e.getMessage());
+            properties = new Properties();
         }
+
+        setDefaultProperties();
     }
 
-    private void overrideFromSystemProperties() {
-        System.out.println("=== CHECKING JENKINS PARAMETERS ===");
+    private String determineConfigFile() {
+        // 1. Проверяем системные свойства
+        String browserParam = System.getProperty("browser");
+        String configParam = System.getProperty("config.file");
 
-        // Проверяем все возможные варианты параметров браузера
-        String[] possibleBrowserParams = {
-                "browser", "BROWSER", "selenoid.browser", "SELENOID_BROWSER",
-                "test.browser", "TEST_BROWSER"
-        };
-
-        String jenkinsBrowser = null;
-        for (String param : possibleBrowserParams) {
-            String value = System.getProperty(param);
-            if (value != null && !value.trim().isEmpty()) {
-                jenkinsBrowser = value;
-                System.out.println("FOUND JENKINS PARAMETER: " + param + " = " + value);
-                break;
-            }
+        if (configParam != null && !configParam.trim().isEmpty()) {
+            return configParam;
         }
 
-        // Также проверяем переменные окружения (иногда Jenkins использует их)
-        if (jenkinsBrowser == null) {
-            for (String param : possibleBrowserParams) {
-                String envParam = param.toUpperCase().replace('.', '_');
-                String value = System.getenv(envParam);
-                if (value != null && !value.trim().isEmpty()) {
-                    jenkinsBrowser = value;
-                    System.out.println("FOUND ENVIRONMENT VARIABLE: " + envParam + " = " + value);
-                    break;
-                }
-            }
+        if (browserParam != null && !browserParam.trim().isEmpty()) {
+            return "config-" + browserParam + ".properties";
         }
 
-        // Если нашли параметр из Jenkins, переопределяем selenoid.browser
-        if (jenkinsBrowser != null) {
-            String oldValue = properties.getProperty("selenoid.browser", "not set");
-            properties.setProperty("selenoid.browser", jenkinsBrowser);
-            System.out.println("OVERRIDING: selenoid.browser from '" + oldValue + "' to '" + jenkinsBrowser + "'");
-        } else {
-            System.out.println("NO JENKINS BROWSER PARAMETER FOUND");
-            System.out.println("Available system properties:");
-            System.getProperties().forEach((key, value) -> {
-                String keyStr = key.toString();
-                if (keyStr.contains("browser") || keyStr.contains("BROWSER") ||
-                        keyStr.contains("jenkins") || keyStr.contains("JENKINS")) {
-                    System.out.println("  " + key + " = " + value);
-                }
-            });
+        // 2. Проверяем переменные окружения
+        String envBrowser = System.getenv("TEST_BROWSER");
+        String envConfig = System.getenv("CONFIG_FILE");
+
+        if (envConfig != null && !envConfig.trim().isEmpty()) {
+            return envConfig;
         }
 
-        // Стандартное переопределение других параметров
-        String[] propertiesToOverride = {
-                "run.mode", "selenoid.browser", "browser.version", "enable.vnc", "enable.video",
-                "local.browser", "local.headless", "selenoid.url"
-        };
-
-        for (String property : propertiesToOverride) {
-            String systemValue = System.getProperty(property);
-            if (systemValue != null && !systemValue.trim().isEmpty()) {
-                String oldValue = properties.getProperty(property, "not set");
-                properties.setProperty(property, systemValue);
-                System.out.println("OVERRIDDEN: " + property + " from '" + oldValue + "' to '" + systemValue + "'");
-            }
+        if (envBrowser != null && !envBrowser.trim().isEmpty()) {
+            return "config-" + envBrowser + ".properties";
         }
+
+        // 3. По умолчанию используем стандартный config.properties
+        return "config.properties";
     }
 
     private void setDefaultProperties() {
@@ -176,6 +147,9 @@ public class RegistrationSteps {
         }
         if (!properties.containsKey("enable.video")) {
             properties.setProperty("enable.video", "false");
+        }
+        if (!properties.containsKey("selenoid.url")) {
+            properties.setProperty("selenoid.url", "http://applineselenoid.fvds.ru:4444/wd/hub");
         }
     }
 
@@ -214,7 +188,6 @@ public class RegistrationSteps {
 
     /**
      * Инициализация удаленного драйвера с использованием Desired Capabilities
-     * для смены типа браузера через config.properties
      */
     private WebDriver initRemoteDriver() throws MalformedURLException {
         String remoteUrl = properties.getProperty("selenoid.url");
@@ -222,7 +195,6 @@ public class RegistrationSteps {
             throw new RuntimeException("Remote URL (selenoid.url) is not specified");
         }
 
-        // Получаем параметры браузера из config.properties
         String browserName = properties.getProperty("selenoid.browser", "chrome");
         String browserVersion = properties.getProperty("browser.version", "latest");
         boolean enableVNC = Boolean.parseBoolean(properties.getProperty("enable.vnc", "true"));
@@ -235,28 +207,21 @@ public class RegistrationSteps {
         System.out.println("  Video: " + enableVideo);
         System.out.println("  URL: " + remoteUrl);
 
-        // Создаем Desired Capabilities для выбора браузера
         DesiredCapabilities capabilities = new DesiredCapabilities();
-
-        // Устанавливаем тип браузера через Desired Capabilities
         capabilities.setBrowserName(browserName);
 
-        // Устанавливаем версию браузера, если указана
         if (!"latest".equals(browserVersion)) {
             capabilities.setVersion(browserVersion);
         }
 
-        // Настройки для Selenoid
         Map<String, Object> selenoidOptions = new HashMap<>();
         selenoidOptions.put("enableVNC", enableVNC);
         selenoidOptions.put("enableVideo", enableVideo);
         selenoidOptions.put("name", "Registration Tests - " + browserName);
 
-        // Базовые настройки
         capabilities.setCapability("acceptInsecureCerts", true);
         capabilities.setCapability("selenoid:options", selenoidOptions);
 
-        // Добавляем специфичные опции для каждого браузера
         switch (browserName.toLowerCase()) {
             case "chrome":
                 ChromeOptions chromeOptions = new ChromeOptions();
@@ -265,7 +230,6 @@ public class RegistrationSteps {
                 chromeOptions.addArguments("--headless");
                 chromeOptions.addArguments("--window-size=1920,1080");
                 chromeOptions.addArguments("--remote-allow-origins=*");
-
                 capabilities.setCapability(ChromeOptions.CAPABILITY, chromeOptions);
                 System.out.println("  Using Chrome options");
                 break;
@@ -275,7 +239,6 @@ public class RegistrationSteps {
                 firefoxOptions.addArguments("--headless");
                 firefoxOptions.addArguments("--width=1920");
                 firefoxOptions.addArguments("--height=1080");
-
                 capabilities.setCapability(FirefoxOptions.FIREFOX_OPTIONS, firefoxOptions);
                 System.out.println("  Using Firefox options");
                 break;
@@ -284,14 +247,10 @@ public class RegistrationSteps {
                 throw new IllegalArgumentException("Unsupported browser: " + browserName);
         }
 
-        System.out.println("Final capabilities: " + capabilities);
         System.out.println("Connecting to: " + remoteUrl);
-        System.out.println("=====================================");
-
         return new RemoteWebDriver(new URL(remoteUrl), capabilities);
     }
 
-    // Остальные методы без изменений...
     private WebDriver createLocalDriver() {
         try {
             String browser = properties.getProperty("local.browser", "chrome");
@@ -314,38 +273,27 @@ public class RegistrationSteps {
 
     private WebDriver createLocalFirefoxDriver(boolean headless) {
         FirefoxOptions options = new FirefoxOptions();
-
         if (headless) {
             options.addArguments("--headless");
         }
-
         options.addArguments("--width=1920");
         options.addArguments("--height=1080");
-        options.addArguments("--disable-extensions");
-        options.addArguments("--disable-plugins");
-
         return new FirefoxDriver(options);
     }
 
     private WebDriver createLocalChromeDriver(boolean headless) {
         ChromeOptions options = new ChromeOptions();
-
         if (headless) {
             options.addArguments("--headless");
         }
-
         options.addArguments("--window-size=1920,1080");
-        options.addArguments("--disable-gpu");
         options.addArguments("--no-sandbox");
         options.addArguments("--disable-dev-shm-usage");
         options.addArguments("--remote-allow-origins=*");
-        options.addArguments("--disable-extensions");
-        options.addArguments("--disable-plugins");
-        options.addArguments("--disable-background-timer-throttling");
-
         return new ChromeDriver(options);
     }
-    // Остальные методы остаются без изменений
+
+    // Остальные методы без изменений...
     @When("Я заполняю форму регистрации с невалидным email")
     @Step("Заполнение формы с невалидным email")
     public void fillFormWithInvalidEmail() {
