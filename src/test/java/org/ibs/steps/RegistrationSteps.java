@@ -93,17 +93,56 @@ public class RegistrationSteps {
     private void overrideFromSystemProperties() {
         System.out.println("=== CHECKING JENKINS PARAMETERS ===");
 
-        // Проверяем все системные свойства
-        System.getProperties().forEach((key, value) -> {
-            if (key.toString().contains("browser") || key.toString().contains("selenoid")) {
-                System.out.println("System property: " + key + " = " + value);
-            }
-        });
+        // Проверяем все возможные варианты параметров браузера
+        String[] possibleBrowserParams = {
+                "browser", "BROWSER", "selenoid.browser", "SELENOID_BROWSER",
+                "test.browser", "TEST_BROWSER"
+        };
 
-        // Чтение параметров из системных свойств (могут быть установлены через Jenkins)
+        String jenkinsBrowser = null;
+        for (String param : possibleBrowserParams) {
+            String value = System.getProperty(param);
+            if (value != null && !value.trim().isEmpty()) {
+                jenkinsBrowser = value;
+                System.out.println("FOUND JENKINS PARAMETER: " + param + " = " + value);
+                break;
+            }
+        }
+
+        // Также проверяем переменные окружения (иногда Jenkins использует их)
+        if (jenkinsBrowser == null) {
+            for (String param : possibleBrowserParams) {
+                String envParam = param.toUpperCase().replace('.', '_');
+                String value = System.getenv(envParam);
+                if (value != null && !value.trim().isEmpty()) {
+                    jenkinsBrowser = value;
+                    System.out.println("FOUND ENVIRONMENT VARIABLE: " + envParam + " = " + value);
+                    break;
+                }
+            }
+        }
+
+        // Если нашли параметр из Jenkins, переопределяем selenoid.browser
+        if (jenkinsBrowser != null) {
+            String oldValue = properties.getProperty("selenoid.browser", "not set");
+            properties.setProperty("selenoid.browser", jenkinsBrowser);
+            System.out.println("OVERRIDING: selenoid.browser from '" + oldValue + "' to '" + jenkinsBrowser + "'");
+        } else {
+            System.out.println("NO JENKINS BROWSER PARAMETER FOUND");
+            System.out.println("Available system properties:");
+            System.getProperties().forEach((key, value) -> {
+                String keyStr = key.toString();
+                if (keyStr.contains("browser") || keyStr.contains("BROWSER") ||
+                        keyStr.contains("jenkins") || keyStr.contains("JENKINS")) {
+                    System.out.println("  " + key + " = " + value);
+                }
+            });
+        }
+
+        // Стандартное переопределение других параметров
         String[] propertiesToOverride = {
                 "run.mode", "selenoid.browser", "browser.version", "enable.vnc", "enable.video",
-                "local.browser", "local.headless", "selenoid.url", "browser"
+                "local.browser", "local.headless", "selenoid.url"
         };
 
         for (String property : propertiesToOverride) {
@@ -113,20 +152,6 @@ public class RegistrationSteps {
                 properties.setProperty(property, systemValue);
                 System.out.println("OVERRIDDEN: " + property + " from '" + oldValue + "' to '" + systemValue + "'");
             }
-        }
-
-        // Специальная обработка для параметра browser из Jenkins
-        String jenkinsBrowser = System.getProperty("browser");
-        if (jenkinsBrowser != null && !jenkinsBrowser.trim().isEmpty()) {
-            String oldValue = properties.getProperty("selenoid.browser", "not set");
-            properties.setProperty("selenoid.browser", jenkinsBrowser);
-            System.out.println("JENKINS BROWSER PARAMETER: Overriding selenoid.browser from '" + oldValue + "' to '" + jenkinsBrowser + "'");
-        }
-
-        // Дополнительная проверка - если передан просто browser, но нет selenoid.browser
-        if (System.getProperty("browser") != null && System.getProperty("selenoid.browser") == null) {
-            properties.setProperty("selenoid.browser", System.getProperty("browser"));
-            System.out.println("SET selenoid.browser to Jenkins browser parameter: " + System.getProperty("browser"));
         }
     }
 
@@ -241,7 +266,6 @@ public class RegistrationSteps {
                 chromeOptions.addArguments("--window-size=1920,1080");
                 chromeOptions.addArguments("--remote-allow-origins=*");
 
-                // Устанавливаем опции Chrome в capabilities
                 capabilities.setCapability(ChromeOptions.CAPABILITY, chromeOptions);
                 System.out.println("  Using Chrome options");
                 break;
@@ -252,7 +276,6 @@ public class RegistrationSteps {
                 firefoxOptions.addArguments("--width=1920");
                 firefoxOptions.addArguments("--height=1080");
 
-                // Устанавливаем опции Firefox в capabilities
                 capabilities.setCapability(FirefoxOptions.FIREFOX_OPTIONS, firefoxOptions);
                 System.out.println("  Using Firefox options");
                 break;
@@ -268,6 +291,7 @@ public class RegistrationSteps {
         return new RemoteWebDriver(new URL(remoteUrl), capabilities);
     }
 
+    // Остальные методы без изменений...
     private WebDriver createLocalDriver() {
         try {
             String browser = properties.getProperty("local.browser", "chrome");
@@ -321,7 +345,6 @@ public class RegistrationSteps {
 
         return new ChromeDriver(options);
     }
-
     // Остальные методы остаются без изменений
     @When("Я заполняю форму регистрации с невалидным email")
     @Step("Заполнение формы с невалидным email")
