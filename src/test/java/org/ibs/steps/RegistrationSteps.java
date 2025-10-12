@@ -75,23 +75,16 @@ public class RegistrationSteps {
 
         // Затем переопределяем selenoid.browser из Jenkins
         overrideBrowserFromJenkins();
-
-        System.out.println("=== FINAL CONFIGURATION ===");
-        properties.forEach((key, value) -> System.out.println("  " + key + " = " + value));
     }
 
     private void loadConfigFromFile() {
         try (InputStream input = getClass().getClassLoader().getResourceAsStream("config.properties")) {
             if (input != null) {
                 properties.load(input);
-                System.out.println("=== LOADED FROM config.properties ===");
-                properties.forEach((key, value) -> System.out.println("  " + key + " = " + value));
             } else {
-                System.out.println("config.properties not found, using defaults");
                 setDefaultProperties();
             }
         } catch (Exception e) {
-            System.out.println("Error loading config.properties: " + e.getMessage());
             setDefaultProperties();
         }
     }
@@ -101,10 +94,7 @@ public class RegistrationSteps {
         String jenkinsBrowser = getBrowserFromJenkins();
 
         if (jenkinsBrowser != null) {
-            String oldBrowser = properties.getProperty("selenoid.browser", "not set");
             properties.setProperty("selenoid.browser", jenkinsBrowser);
-            System.out.println("=== JENKINS OVERRIDE ===");
-            System.out.println("Overridden selenoid.browser from '" + oldBrowser + "' to '" + jenkinsBrowser + "'");
         }
     }
 
@@ -112,14 +102,12 @@ public class RegistrationSteps {
         // Проверяем переменные окружения Jenkins
         String browser = System.getenv("BROWSER");
         if (browser != null && !browser.trim().isEmpty()) {
-            System.out.println("Found browser from Jenkins environment variable: " + browser);
             return browser.toLowerCase();
         }
 
         // Проверяем системные свойства (через -D параметр)
         browser = System.getProperty("browser");
         if (browser != null && !browser.trim().isEmpty()) {
-            System.out.println("Found browser from system property: " + browser);
             return browser.toLowerCase();
         }
 
@@ -129,19 +117,16 @@ public class RegistrationSteps {
             // Проверяем переменные окружения
             String envValue = System.getenv(param);
             if (envValue != null && !envValue.trim().isEmpty()) {
-                System.out.println("Found browser from environment variable " + param + ": " + envValue);
                 return envValue.toLowerCase();
             }
 
             // Проверяем системные свойства
             String propValue = System.getProperty(param);
             if (propValue != null && !propValue.trim().isEmpty()) {
-                System.out.println("Found browser from system property " + param + ": " + propValue);
                 return propValue.toLowerCase();
             }
         }
 
-        System.out.println("No Jenkins browser parameter found, using value from config.properties");
         return null; // Не переопределяем, используем значение из config.properties
     }
 
@@ -180,12 +165,8 @@ public class RegistrationSteps {
 
             if ("selenoid".equalsIgnoreCase(runMode)) {
                 driver = initRemoteDriver();
-                System.out.println("Running in SELENOID mode with browser: " +
-                        properties.getProperty("selenoid.browser"));
             } else {
                 driver = createLocalDriver();
-                System.out.println("Running in LOCAL mode with browser: " +
-                        properties.getProperty("local.browser"));
             }
 
             wait = new WebDriverWait(driver, EXPLICIT_WAIT);
@@ -219,13 +200,6 @@ public class RegistrationSteps {
         boolean enableVNC = Boolean.parseBoolean(properties.getProperty("enable.vnc", "true"));
         boolean enableVideo = Boolean.parseBoolean(properties.getProperty("enable.video", "false"));
 
-        System.out.println("=== REMOTE DRIVER CONFIGURATION ===");
-        System.out.println("  Browser: " + browserName);
-        System.out.println("  Version: " + browserVersion);
-        System.out.println("  VNC: " + enableVNC);
-        System.out.println("  Video: " + enableVideo);
-        System.out.println("  URL: " + remoteUrl);
-
         DesiredCapabilities capabilities = new DesiredCapabilities();
         capabilities.setBrowserName(browserName);
 
@@ -250,7 +224,6 @@ public class RegistrationSteps {
                 chromeOptions.addArguments("--window-size=1920,1080");
                 chromeOptions.addArguments("--remote-allow-origins=*");
                 capabilities.setCapability(ChromeOptions.CAPABILITY, chromeOptions);
-                System.out.println("  Using Chrome options");
                 break;
 
             case "firefox":
@@ -259,14 +232,12 @@ public class RegistrationSteps {
                 firefoxOptions.addArguments("--width=1920");
                 firefoxOptions.addArguments("--height=1080");
                 capabilities.setCapability(FirefoxOptions.FIREFOX_OPTIONS, firefoxOptions);
-                System.out.println("  Using Firefox options");
                 break;
 
             default:
                 throw new IllegalArgumentException("Unsupported browser: " + browserName);
         }
 
-        System.out.println("Connecting to: " + remoteUrl);
         return new RemoteWebDriver(new URL(remoteUrl), capabilities);
     }
 
@@ -274,8 +245,6 @@ public class RegistrationSteps {
         try {
             String browser = properties.getProperty("local.browser", "chrome");
             boolean headless = Boolean.parseBoolean(properties.getProperty("local.headless", "true"));
-
-            System.out.println("Creating Local driver for: " + browser + " headless: " + headless);
 
             switch (browser.toLowerCase()) {
                 case "chrome":
