@@ -72,6 +72,8 @@ public class RegistrationSteps {
             properties = new Properties();
             if (input != null) {
                 properties.load(input);
+                System.out.println("=== LOADED FROM config.properties ===");
+                properties.forEach((key, value) -> System.out.println("  " + key + " = " + value));
             }
 
             // Переопределение параметров из системных свойств (Jenkins)
@@ -80,33 +82,51 @@ public class RegistrationSteps {
             // Установка значений по умолчанию
             setDefaultProperties();
 
+            System.out.println("=== FINAL PROPERTIES ===");
+            properties.forEach((key, value) -> System.out.println("  " + key + " = " + value));
+
         } catch (Exception e) {
             throw new RuntimeException("Failed to load configuration", e);
         }
     }
 
     private void overrideFromSystemProperties() {
+        System.out.println("=== CHECKING JENKINS PARAMETERS ===");
+
+        // Проверяем все системные свойства
+        System.getProperties().forEach((key, value) -> {
+            if (key.toString().contains("browser") || key.toString().contains("selenoid")) {
+                System.out.println("System property: " + key + " = " + value);
+            }
+        });
+
         // Чтение параметров из системных свойств (могут быть установлены через Jenkins)
         String[] propertiesToOverride = {
                 "run.mode", "selenoid.browser", "browser.version", "enable.vnc", "enable.video",
-                "local.browser", "local.headless", "selenoid.url", "browser" // Добавлен параметр browser
+                "local.browser", "local.headless", "selenoid.url", "browser"
         };
 
         for (String property : propertiesToOverride) {
             String systemValue = System.getProperty(property);
             if (systemValue != null && !systemValue.trim().isEmpty()) {
+                String oldValue = properties.getProperty(property, "not set");
                 properties.setProperty(property, systemValue);
-                System.out.println("Overridden property from system: " + property + " = " + systemValue);
+                System.out.println("OVERRIDDEN: " + property + " from '" + oldValue + "' to '" + systemValue + "'");
             }
         }
 
         // Специальная обработка для параметра browser из Jenkins
         String jenkinsBrowser = System.getProperty("browser");
         if (jenkinsBrowser != null && !jenkinsBrowser.trim().isEmpty()) {
-            // Если передан параметр browser из Jenkins, используем его для selenoid.browser
+            String oldValue = properties.getProperty("selenoid.browser", "not set");
             properties.setProperty("selenoid.browser", jenkinsBrowser);
-            System.out.println("Jenkins browser parameter detected: " + jenkinsBrowser);
-            System.out.println("Setting selenoid.browser to: " + jenkinsBrowser);
+            System.out.println("JENKINS BROWSER PARAMETER: Overriding selenoid.browser from '" + oldValue + "' to '" + jenkinsBrowser + "'");
+        }
+
+        // Дополнительная проверка - если передан просто browser, но нет selenoid.browser
+        if (System.getProperty("browser") != null && System.getProperty("selenoid.browser") == null) {
+            properties.setProperty("selenoid.browser", System.getProperty("browser"));
+            System.out.println("SET selenoid.browser to Jenkins browser parameter: " + System.getProperty("browser"));
         }
     }
 
@@ -311,7 +331,7 @@ public class RegistrationSteps {
                 "Иванов",         // lastName
                 "himail.ru",      // email (invalid - no @)
                 "Q1w2e3l",        // password
-                false,            // subscribe - ИЗМЕНЕНО: отключаем подписку
+                false,            // subscribe
                 true              // agree
         );
         clickContinueButton();
@@ -325,7 +345,7 @@ public class RegistrationSteps {
                 "Иванов",         // lastName
                 "IvanIvan22222222@mail.ru", // email
                 "Q1w2e3l",        // password
-                false,            // subscribe - ИЗМЕНЕНО: отключаем подписку
+                false,            // subscribe
                 true              // agree
         );
         clickContinueButton();
@@ -341,7 +361,7 @@ public class RegistrationSteps {
                 "Иванов",                  // lastName
                 uniqueEmail,               // email (уникальный)
                 "Q1w2e3r4t5y6u7i8o9p0",   // password
-                false,                     // subscribe - ИЗМЕНЕНО: отключаем подписку
+                false,                     // subscribe
                 true                       // agree
         );
         clickContinueButton();
@@ -374,12 +394,10 @@ public class RegistrationSteps {
         setInputValue(EMAIL_INPUT, email);
         setInputValue(PASSWORD_INPUT, password);
 
-        // Подписка на рассылку - теперь опционально и с улучшенной обработкой
         if (subscribe) {
             setCheckboxValueSafely(NEWSLETTER_CHECKBOX, true);
         }
 
-        // Обязательное соглашение - с улучшенной обработкой
         if (agree) {
             setCheckboxValueSafely(AGREE_CHECKBOX, true);
         }
@@ -396,42 +414,31 @@ public class RegistrationSteps {
     private void setCheckboxValueSafely(By locator, boolean checked) {
         try {
             WebElement checkbox = wait.until(ExpectedConditions.presenceOfElementLocated(locator));
-
-            // Прокручиваем к элементу с помощью JavaScript
             scrollToElement(checkbox);
-
-            // Ждем, пока элемент станет кликабельным
             wait.until(ExpectedConditions.elementToBeClickable(checkbox));
 
-            // Проверяем текущее состояние и кликаем только если нужно изменить
             if (checkbox.isSelected() != checked) {
-                // Используем JavaScript для клика, если обычный не работает
                 try {
                     checkbox.click();
                 } catch (ElementNotInteractableException e) {
-                    // Если обычный клик не работает, используем JavaScript
                     javascriptClick(checkbox);
                 }
             }
 
-            // Проверяем, что состояние изменилось как ожидалось
             wait.until(driver -> checkbox.isSelected() == checked);
 
         } catch (TimeoutException e) {
             System.out.println("Checkbox interaction timeout, continuing without it: " + locator);
-            // Продолжаем выполнение без установки чекбокса
         } catch (Exception e) {
             System.out.println("Checkbox interaction failed, continuing without it: " + e.getMessage());
-            // Продолжаем выполнение без установки чекбокса
         }
     }
 
     @Step("Прокрутка к элементу")
     private void scrollToElement(WebElement element) {
         try {
-            // Используем JavaScript для прокрутки к элементу
             ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center', inline: 'center'});", element);
-            Thread.sleep(500); // Небольшая пауза после прокрутки
+            Thread.sleep(500);
         } catch (Exception e) {
             System.out.println("Scroll failed: " + e.getMessage());
         }
