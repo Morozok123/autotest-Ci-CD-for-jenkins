@@ -12,6 +12,7 @@ import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.firefox.FirefoxDriver;
 import org.openqa.selenium.firefox.FirefoxOptions;
 import org.openqa.selenium.interactions.Actions;
+import org.openqa.selenium.remote.DesiredCapabilities;
 import org.openqa.selenium.remote.RemoteWebDriver;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
@@ -67,48 +68,64 @@ public class RegistrationSteps {
     }
 
     private void loadProperties() {
+        properties = new Properties();
+
+        // Сначала загружаем config.properties
+        loadConfigFromFile();
+
+        // Затем переопределяем selenoid.browser из Jenkins Pipeline
+        overrideBrowserFromJenkins();
+    }
+
+    private void loadConfigFromFile() {
         try (InputStream input = getClass().getClassLoader().getResourceAsStream("config.properties")) {
-            properties = new Properties();
             if (input != null) {
                 properties.load(input);
+            } else {
+                setDefaultProperties();
             }
-
-            // Переопределение параметров из системных свойств (Jenkins)
-            overrideFromSystemProperties();
-
-            // Установка значений по умолчанию
-            setDefaultProperties();
-
         } catch (Exception e) {
-            throw new RuntimeException("Failed to load configuration", e);
+            setDefaultProperties();
         }
     }
 
-    private void overrideFromSystemProperties() {
-        // Чтение параметров из системных свойств (могут быть установлены через Jenkins)
-        String[] propertiesToOverride = {
-                "run.mode", "selenoid.browser", "browser.version", "enable.vnc", "enable.video",
-                "local.browser", "local.headless", "selenoid.url"
-        };
+    private void overrideBrowserFromJenkins() {
+        // Получаем браузер из Jenkins Pipeline
+        String jenkinsBrowser = getBrowserFromJenkins();
 
-        for (String property : propertiesToOverride) {
-            String systemValue = System.getProperty(property);
-            if (systemValue != null && !systemValue.trim().isEmpty()) {
-                properties.setProperty(property, systemValue);
-                System.out.println("Overridden property from system: " + property + " = " + systemValue);
-            }
+        if (jenkinsBrowser != null) {
+            properties.setProperty("selenoid.browser", jenkinsBrowser);
         }
+    }
+
+    private String getBrowserFromJenkins() {
+        // Для Pipeline проверяем системные свойства (передаются через -D)
+        String browser = System.getProperty("type.browser");
+        if (browser != null && !browser.trim().isEmpty()) {
+            return browser.toLowerCase();
+        }
+
+        // Также проверяем стандартное имя параметра
+        browser = System.getProperty("browser");
+        if (browser != null && !browser.trim().isEmpty()) {
+            return browser.toLowerCase();
+        }
+
+        // Проверяем переменные окружения
+        browser = System.getenv("BROWSER");
+        if (browser != null && !browser.trim().isEmpty()) {
+            return browser.toLowerCase();
+        }
+
+        return null; // Не переопределяем, используем значение из config.properties
     }
 
     private void setDefaultProperties() {
         if (!properties.containsKey("run.mode")) {
-            properties.setProperty("run.mode", "local");
+            properties.setProperty("run.mode", "selenoid");
         }
-        if (!properties.containsKey("local.browser")) {
-            properties.setProperty("local.browser", "chrome");
-        }
-        if (!properties.containsKey("local.headless")) {
-            properties.setProperty("local.headless", "true");
+        if (!properties.containsKey("selenoid.url")) {
+            properties.setProperty("selenoid.url", "http://applineselenoid.fvds.ru:4444/wd/hub");
         }
         if (!properties.containsKey("selenoid.browser")) {
             properties.setProperty("selenoid.browser", "chrome");
@@ -122,6 +139,12 @@ public class RegistrationSteps {
         if (!properties.containsKey("enable.video")) {
             properties.setProperty("enable.video", "false");
         }
+        if (!properties.containsKey("local.browser")) {
+            properties.setProperty("local.browser", "chrome");
+        }
+        if (!properties.containsKey("local.headless")) {
+            properties.setProperty("local.headless", "true");
+        }
     }
 
     @Given("Я открываю страницу регистрации")
@@ -131,13 +154,9 @@ public class RegistrationSteps {
             String runMode = properties.getProperty("run.mode", "local");
 
             if ("selenoid".equalsIgnoreCase(runMode)) {
-                driver = createSelenoidDriver();
-                System.out.println("Running in SELENOID mode with browser: " +
-                        properties.getProperty("selenoid.browser"));
+                driver = initRemoteDriver();
             } else {
                 driver = createLocalDriver();
-                System.out.println("Running in LOCAL mode with browser: " +
-                        properties.getProperty("local.browser"));
             }
 
             wait = new WebDriverWait(driver, EXPLICIT_WAIT);
@@ -147,11 +166,9 @@ public class RegistrationSteps {
             driver.manage().timeouts().implicitlyWait(IMPLICIT_WAIT);
 
             driver.get(REGISTER_URL);
-            // Убираем автоматическую прокрутку, так как она может мешать
             waitForPageToLoad();
 
         } catch (Exception e) {
-            // Закрываем драйвер в случае ошибки инициализации
             if (driver != null) {
                 driver.quit();
             }
@@ -159,31 +176,65 @@ public class RegistrationSteps {
         }
     }
 
-    private WebDriver createSelenoidDriver() throws MalformedURLException {
-        try {
-            String browser = properties.getProperty("selenoid.browser", "chrome");
-            String browserVersion = properties.getProperty("browser.version", "latest");
-
-            System.out.println("Creating Selenoid driver for: " + browser + " version: " + browserVersion);
-
-            switch (browser.toLowerCase()) {
-                case "firefox":
-                    return createSelenoidFirefoxDriver(browserVersion);
-                case "chrome":
-                default:
-                    return createSelenoidChromeDriver(browserVersion);
-            }
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to create Selenoid driver: " + e.getMessage(), e);
+    /**
+     * Инициализация удаленного драйвера с использованием Desired Capabilities
+     */
+    private WebDriver initRemoteDriver() throws MalformedURLException {
+        String remoteUrl = properties.getProperty("selenoid.url");
+        if (remoteUrl == null || remoteUrl.trim().isEmpty()) {
+            throw new RuntimeException("Remote URL (selenoid.url) is not specified");
         }
+
+        String browserName = properties.getProperty("selenoid.browser", "chrome");
+        String browserVersion = properties.getProperty("browser.version", "latest");
+        boolean enableVNC = Boolean.parseBoolean(properties.getProperty("enable.vnc", "true"));
+        boolean enableVideo = Boolean.parseBoolean(properties.getProperty("enable.video", "false"));
+
+        DesiredCapabilities capabilities = new DesiredCapabilities();
+        capabilities.setBrowserName(browserName);
+
+        if (!"latest".equals(browserVersion)) {
+            capabilities.setVersion(browserVersion);
+        }
+
+        Map<String, Object> selenoidOptions = new HashMap<>();
+        selenoidOptions.put("enableVNC", enableVNC);
+        selenoidOptions.put("enableVideo", enableVideo);
+        selenoidOptions.put("name", "Registration Tests - " + browserName);
+
+        capabilities.setCapability("acceptInsecureCerts", true);
+        capabilities.setCapability("selenoid:options", selenoidOptions);
+
+        switch (browserName.toLowerCase()) {
+            case "chrome":
+                ChromeOptions chromeOptions = new ChromeOptions();
+                chromeOptions.addArguments("--no-sandbox");
+                chromeOptions.addArguments("--disable-dev-shm-usage");
+                chromeOptions.addArguments("--headless");
+                chromeOptions.addArguments("--window-size=1920,1080");
+                chromeOptions.addArguments("--remote-allow-origins=*");
+                capabilities.setCapability(ChromeOptions.CAPABILITY, chromeOptions);
+                break;
+
+            case "firefox":
+                FirefoxOptions firefoxOptions = new FirefoxOptions();
+                firefoxOptions.addArguments("--headless");
+                firefoxOptions.addArguments("--width=1920");
+                firefoxOptions.addArguments("--height=1080");
+                capabilities.setCapability(FirefoxOptions.FIREFOX_OPTIONS, firefoxOptions);
+                break;
+
+            default:
+                throw new IllegalArgumentException("Unsupported browser: " + browserName);
+        }
+
+        return new RemoteWebDriver(new URL(remoteUrl), capabilities);
     }
 
     private WebDriver createLocalDriver() {
         try {
             String browser = properties.getProperty("local.browser", "chrome");
             boolean headless = Boolean.parseBoolean(properties.getProperty("local.headless", "true"));
-
-            System.out.println("Creating Local driver for: " + browser + " headless: " + headless);
 
             switch (browser.toLowerCase()) {
                 case "chrome":
@@ -200,83 +251,23 @@ public class RegistrationSteps {
 
     private WebDriver createLocalFirefoxDriver(boolean headless) {
         FirefoxOptions options = new FirefoxOptions();
-
         if (headless) {
             options.addArguments("--headless");
         }
-
         options.addArguments("--width=1920");
         options.addArguments("--height=1080");
-        options.addArguments("--disable-extensions");
-        options.addArguments("--disable-plugins");
-
         return new FirefoxDriver(options);
-    }
-
-    private WebDriver createSelenoidFirefoxDriver(String browserVersion) throws MalformedURLException {
-        FirefoxOptions options = new FirefoxOptions();
-
-        options.addArguments("--headless");
-        options.addArguments("--width=1920");
-        options.addArguments("--height=1080");
-
-        if (!"latest".equals(browserVersion)) {
-            options.setBrowserVersion(browserVersion);
-        }
-
-        Map<String, Object> selenoidOptions = new HashMap<>();
-        selenoidOptions.put("enableVNC", Boolean.parseBoolean(properties.getProperty("enable.vnc", "true")));
-        selenoidOptions.put("enableVideo", Boolean.parseBoolean(properties.getProperty("enable.video", "false")));
-        selenoidOptions.put("name", "Registration Tests - Firefox");
-
-        options.setCapability("selenoid:options", selenoidOptions);
-
-        String selenoidUrl = properties.getProperty("selenoid.url");
-        return new RemoteWebDriver(new URL(selenoidUrl), options);
-    }
-
-    private WebDriver createSelenoidChromeDriver(String browserVersion) throws MalformedURLException {
-        ChromeOptions options = new ChromeOptions();
-
-        options.addArguments("--no-sandbox");
-        options.addArguments("--disable-dev-shm-usage");
-        options.addArguments("--headless");
-        options.addArguments("--window-size=1920,1080");
-        options.addArguments("--remote-allow-origins=*");
-        options.addArguments("--disable-blink-features=AutomationControlled");
-        options.setExperimentalOption("excludeSwitches", new String[]{"enable-automation"});
-
-        if (!"latest".equals(browserVersion)) {
-            options.setBrowserVersion(browserVersion);
-        }
-
-        Map<String, Object> selenoidOptions = new HashMap<>();
-        selenoidOptions.put("enableVNC", Boolean.parseBoolean(properties.getProperty("enable.vnc", "true")));
-        selenoidOptions.put("enableVideo", Boolean.parseBoolean(properties.getProperty("enable.video", "false")));
-        selenoidOptions.put("name", "Registration Tests - Chrome");
-
-        options.setCapability("selenoid:options", selenoidOptions);
-
-        String selenoidUrl = properties.getProperty("selenoid.url");
-        return new RemoteWebDriver(new URL(selenoidUrl), options);
     }
 
     private WebDriver createLocalChromeDriver(boolean headless) {
         ChromeOptions options = new ChromeOptions();
-
         if (headless) {
             options.addArguments("--headless");
         }
-
         options.addArguments("--window-size=1920,1080");
-        options.addArguments("--disable-gpu");
         options.addArguments("--no-sandbox");
         options.addArguments("--disable-dev-shm-usage");
         options.addArguments("--remote-allow-origins=*");
-        options.addArguments("--disable-extensions");
-        options.addArguments("--disable-plugins");
-        options.addArguments("--disable-background-timer-throttling");
-
         return new ChromeDriver(options);
     }
 
@@ -288,7 +279,7 @@ public class RegistrationSteps {
                 "Иванов",         // lastName
                 "himail.ru",      // email (invalid - no @)
                 "Q1w2e3l",        // password
-                false,            // subscribe - ИЗМЕНЕНО: отключаем подписку
+                false,            // subscribe
                 true              // agree
         );
         clickContinueButton();
@@ -302,7 +293,7 @@ public class RegistrationSteps {
                 "Иванов",         // lastName
                 "IvanIvan22222222@mail.ru", // email
                 "Q1w2e3l",        // password
-                false,            // subscribe - ИЗМЕНЕНО: отключаем подписку
+                false,            // subscribe
                 true              // agree
         );
         clickContinueButton();
@@ -318,7 +309,7 @@ public class RegistrationSteps {
                 "Иванов",                  // lastName
                 uniqueEmail,               // email (уникальный)
                 "Q1w2e3r4t5y6u7i8o9p0",   // password
-                false,                     // subscribe - ИЗМЕНЕНО: отключаем подписку
+                false,                     // subscribe
                 true                       // agree
         );
         clickContinueButton();
@@ -351,12 +342,10 @@ public class RegistrationSteps {
         setInputValue(EMAIL_INPUT, email);
         setInputValue(PASSWORD_INPUT, password);
 
-        // Подписка на рассылку - теперь опционально и с улучшенной обработкой
         if (subscribe) {
             setCheckboxValueSafely(NEWSLETTER_CHECKBOX, true);
         }
 
-        // Обязательное соглашение - с улучшенной обработкой
         if (agree) {
             setCheckboxValueSafely(AGREE_CHECKBOX, true);
         }
@@ -373,42 +362,31 @@ public class RegistrationSteps {
     private void setCheckboxValueSafely(By locator, boolean checked) {
         try {
             WebElement checkbox = wait.until(ExpectedConditions.presenceOfElementLocated(locator));
-
-            // Прокручиваем к элементу с помощью JavaScript
             scrollToElement(checkbox);
-
-            // Ждем, пока элемент станет кликабельным
             wait.until(ExpectedConditions.elementToBeClickable(checkbox));
 
-            // Проверяем текущее состояние и кликаем только если нужно изменить
             if (checkbox.isSelected() != checked) {
-                // Используем JavaScript для клика, если обычный не работает
                 try {
                     checkbox.click();
                 } catch (ElementNotInteractableException e) {
-                    // Если обычный клик не работает, используем JavaScript
                     javascriptClick(checkbox);
                 }
             }
 
-            // Проверяем, что состояние изменилось как ожидалось
             wait.until(driver -> checkbox.isSelected() == checked);
 
         } catch (TimeoutException e) {
             System.out.println("Checkbox interaction timeout, continuing without it: " + locator);
-            // Продолжаем выполнение без установки чекбокса
         } catch (Exception e) {
             System.out.println("Checkbox interaction failed, continuing without it: " + e.getMessage());
-            // Продолжаем выполнение без установки чекбокса
         }
     }
 
     @Step("Прокрутка к элементу")
     private void scrollToElement(WebElement element) {
         try {
-            // Используем JavaScript для прокрутки к элементу
             ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center', inline: 'center'});", element);
-            Thread.sleep(500); // Небольшая пауза после прокрутки
+            Thread.sleep(500);
         } catch (Exception e) {
             System.out.println("Scroll failed: " + e.getMessage());
         }

@@ -1,4 +1,15 @@
 node('unix') {
+    agent {
+            label 'unix'
+        }
+
+        parameters {
+            choice(
+                name: 'BROWSER',
+                choices: ['chrome', 'firefox'],
+                description: 'Select browser for tests'
+            )
+        }
     stage('Git checkout') {
         checkout scm
     }
