@@ -89,7 +89,7 @@ public class RegistrationSteps {
         // Чтение параметров из системных свойств (могут быть установлены через Jenkins)
         String[] propertiesToOverride = {
                 "run.mode", "selenoid.browser", "browser.version", "enable.vnc", "enable.video",
-                "local.browser", "local.headless", "selenoid.url"
+                "local.browser", "local.headless", "selenoid.url", "browser" // Добавлен параметр browser
         };
 
         for (String property : propertiesToOverride) {
@@ -98,6 +98,15 @@ public class RegistrationSteps {
                 properties.setProperty(property, systemValue);
                 System.out.println("Overridden property from system: " + property + " = " + systemValue);
             }
+        }
+
+        // Специальная обработка для параметра browser из Jenkins
+        String jenkinsBrowser = System.getProperty("browser");
+        if (jenkinsBrowser != null && !jenkinsBrowser.trim().isEmpty()) {
+            // Если передан параметр browser из Jenkins, используем его для selenoid.browser
+            properties.setProperty("selenoid.browser", jenkinsBrowser);
+            System.out.println("Jenkins browser parameter detected: " + jenkinsBrowser);
+            System.out.println("Setting selenoid.browser to: " + jenkinsBrowser);
         }
     }
 
@@ -148,11 +157,9 @@ public class RegistrationSteps {
             driver.manage().timeouts().implicitlyWait(IMPLICIT_WAIT);
 
             driver.get(REGISTER_URL);
-            // Убираем автоматическую прокрутку, так как она может мешать
             waitForPageToLoad();
 
         } catch (Exception e) {
-            // Закрываем драйвер в случае ошибки инициализации
             if (driver != null) {
                 driver.quit();
             }
@@ -176,11 +183,12 @@ public class RegistrationSteps {
         boolean enableVNC = Boolean.parseBoolean(properties.getProperty("enable.vnc", "true"));
         boolean enableVideo = Boolean.parseBoolean(properties.getProperty("enable.video", "false"));
 
-        System.out.println("Initializing remote driver with Desired Capabilities:");
+        System.out.println("=== REMOTE DRIVER CONFIGURATION ===");
         System.out.println("  Browser: " + browserName);
         System.out.println("  Version: " + browserVersion);
         System.out.println("  VNC: " + enableVNC);
         System.out.println("  Video: " + enableVideo);
+        System.out.println("  URL: " + remoteUrl);
 
         // Создаем Desired Capabilities для выбора браузера
         DesiredCapabilities capabilities = new DesiredCapabilities();
@@ -215,6 +223,7 @@ public class RegistrationSteps {
 
                 // Устанавливаем опции Chrome в capabilities
                 capabilities.setCapability(ChromeOptions.CAPABILITY, chromeOptions);
+                System.out.println("  Using Chrome options");
                 break;
 
             case "firefox":
@@ -225,14 +234,16 @@ public class RegistrationSteps {
 
                 // Устанавливаем опции Firefox в capabilities
                 capabilities.setCapability(FirefoxOptions.FIREFOX_OPTIONS, firefoxOptions);
+                System.out.println("  Using Firefox options");
                 break;
 
             default:
-                throw new IllegalArgumentException("Unsupported browser in config.properties: " + browserName);
+                throw new IllegalArgumentException("Unsupported browser: " + browserName);
         }
 
-        System.out.println("Connecting to remote driver at: " + remoteUrl);
-        System.out.println("Using Desired Capabilities: " + capabilities);
+        System.out.println("Final capabilities: " + capabilities);
+        System.out.println("Connecting to: " + remoteUrl);
+        System.out.println("=====================================");
 
         return new RemoteWebDriver(new URL(remoteUrl), capabilities);
     }
